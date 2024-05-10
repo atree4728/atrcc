@@ -1,3 +1,2 @@
 CompileFlags:
-    Add: [-Wall, -Wextra, -std=c11]
-    Compiler: clang
+  Add: [-Wall, -Wextra, -std=c11]

@@ -4,7 +4,7 @@ atrcc: src/atrcc.c
 	cc $(CFLAGS) src/atrcc.c -o atrcc
 
 test: atrcc
-		./test/exit_code.sh
+		./test/test.sh
 
 clean:
 		rm -f atrcc *.o tmp*

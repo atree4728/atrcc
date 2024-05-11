@@ -1,25 +1,11 @@
 #include <assert.h>
 #include <ctype.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-typedef enum {
-    TK_RESERVED,
-    TK_NUM,
-    TK_EOF,
-} TokenKind;
-
-typedef struct Token Token;
-
-struct Token {
-    TokenKind kind;
-    Token *next;
-    int val;
-    char *str;
-};
 
 void error(char *fmt, ...) {
     va_list ap;
@@ -45,18 +31,36 @@ void error_at(char *loc, char *fmt, ...) {
     exit(1);
 }
 
+typedef enum {
+    TK_RESERVED,
+    TK_NUM,
+    TK_EOF,
+} TokenKind;
+
+typedef struct Token Token;
+
+struct Token {
+    TokenKind kind;
+    Token *next;
+    int val;
+    char *str;
+    unsigned len;
+};
+
 Token *token;
 
-bool consume(char op) {
-    if (token->kind != TK_RESERVED || token->str[0] != op)
+bool consume(char *op) {
+    if (token->kind != TK_RESERVED || strlen(op) != token->len ||
+        memcmp(token->str, op, token->len) != 0)
         return false;
     token = token->next;
     return true;
 }
 
-void expect(char op) {
-    if (token->kind != TK_RESERVED || token->str[0] != op)
-        error_at(token->str, "expected: '%c'.", op);
+void expect(char *op) {
+    if (token->kind != TK_RESERVED || strlen(op) != token->len ||
+        memcmp(token->str, op, token->len) != 0)
+        error_at(token->str, "expected: '%s'.", op);
     token = token->next;
 }
 
@@ -70,10 +74,11 @@ int expect_number() {
 
 bool at_eof() { return token->kind == TK_EOF; }
 
-Token *new_token(TokenKind kind, Token *cur, char *str) {
+Token *new_token(TokenKind kind, Token *cur, char *str, unsigned len) {
     Token *tok = calloc(1, sizeof(Token));
     tok->kind = kind;
     tok->str = str;
+    tok->len = len;
     cur->next = tok;
     return tok;
 }
@@ -89,16 +94,17 @@ Token *tokenize() {
             p++;
         } else if (*p == '+' || *p == '-' || *p == '*' || *p == '/' ||
                    *p == '(' || *p == ')') {
-            cur = new_token(TK_RESERVED, cur, p++);
+            cur = new_token(TK_RESERVED, cur, p++, 1);
         } else if (isdigit(*p)) {
-            cur = new_token(TK_NUM, cur, p);
+            cur = new_token(TK_NUM, cur, p, 0);
             cur->val = strtol(p, &p, 10);
+            cur->len = (int)(log10(cur->val)) + 1;
         } else {
             error_at(p, "fail to tokenize.");
         }
     }
 
-    new_token(TK_EOF, cur, p);
+    new_token(TK_EOF, cur, p, 0);
     return head.next;
 }
 
@@ -136,18 +142,18 @@ Node *new_node_num(int val) {
 
 Node *expr();
 Node *primary() {
-    if (consume('(')) {
+    if (consume("(")) {
         Node *node = expr();
-        expect(')');
+        expect(")");
         return node;
     }
     return new_node_num(expect_number());
 }
 
 Node *unary() {
-    if (consume('+'))
+    if (consume("+"))
         return primary();
-    if (consume('-'))
+    if (consume("-"))
         return new_node(ND_SUB, new_node_num(0), primary());
     return primary();
 }
@@ -155,9 +161,9 @@ Node *unary() {
 Node *mul() {
     Node *node = unary();
     while (true) {
-        if (consume('*'))
+        if (consume("*"))
             node = new_node(ND_MUL, node, unary());
-        else if (consume('/'))
+        else if (consume("/"))
             node = new_node(ND_DIV, node, unary());
         else
             return node;
@@ -167,9 +173,9 @@ Node *mul() {
 Node *expr() {
     Node *node = mul();
     while (true) {
-        if (consume('+'))
+        if (consume("+"))
             node = new_node(ND_ADD, node, mul());
-        else if (consume('-'))
+        else if (consume("-"))
             node = new_node(ND_SUB, node, mul());
         else
             return node;

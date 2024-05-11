@@ -1,7 +1,8 @@
 CFLAGS = -std=c11 -Wall -Wextra -g -static
+LDFLAGS = -lm
 
 atrcc: src/atrcc.c
-	cc $(CFLAGS) src/atrcc.c -o atrcc
+	cc $(CFLAGS) src/atrcc.c -o atrcc $(LDFLAGS)
 
 test: atrcc
 		./test/test.sh

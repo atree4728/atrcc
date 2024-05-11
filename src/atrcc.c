@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+bool starts_with(char *s, char *t) { return memcmp(s, t, strlen(t)) == 0; }
+
 void error(char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
@@ -89,18 +91,28 @@ Token *tokenize() {
     head.next = NULL;
     Token *cur = &head;
 
+    char reserved[][3] = {"+",  "-", "*",  "/", "(",  ")",
+                          "<=", "<", ">=", ">", "==", "!="};
+
     while (*p) {
         if (isspace(*p)) {
             p++;
-        } else if (*p == '+' || *p == '-' || *p == '*' || *p == '/' ||
-                   *p == '(' || *p == ')') {
-            cur = new_token(TK_RESERVED, cur, p++, 1);
         } else if (isdigit(*p)) {
             cur = new_token(TK_NUM, cur, p, 0);
             cur->val = strtol(p, &p, 10);
             cur->len = (int)(log10(cur->val)) + 1;
         } else {
+            for (unsigned i = 0; i < sizeof(reserved) / sizeof(reserved[0]);
+                 ++i) {
+                if (starts_with(p, reserved[i])) {
+                    unsigned len = strlen(reserved[i]);
+                    cur = new_token(TK_RESERVED, cur, p, len);
+                    p += len;
+                    goto OUT;
+                }
+            }
             error_at(p, "fail to tokenize.");
+        OUT: {}
         }
     }
 
@@ -108,7 +120,17 @@ Token *tokenize() {
     return head.next;
 }
 
-typedef enum { ND_ADD, ND_SUB, ND_MUL, ND_DIV, ND_NUM } NodeKind;
+typedef enum {
+    ND_ADD,
+    ND_SUB,
+    ND_MUL,
+    ND_DIV,
+    ND_LT,
+    ND_LE,
+    ND_EQ,
+    ND_NEQ,
+    ND_NUM
+} NodeKind;
 typedef struct Node Node;
 
 struct Node {
@@ -134,10 +156,13 @@ Node *new_node_num(int val) {
 }
 
 /* EBNF:
- *   expr    = mul | (("+" | "-") mul)*
- *   mul     = unary | (("*" | "/") unary)*
- *   unary   = ("+" | "-")? primary
- *   primary = num | "(" expr ")"
+ *   expr       = equality
+ *   equality   = relational (("==" | "!=") relational)*
+ *   relational = add (("<" | "<=" | ">" | ">=") add)*
+ *   add        = mul (("+" | "-") mul)*
+ *   mul        = unary (("*" | "/") unary)*
+ *   unary      = ("+" | "-")? primary
+ *   primary    = num | "(" expr ")"
  */
 
 Node *expr();
@@ -170,7 +195,7 @@ Node *mul() {
     }
 }
 
-Node *expr() {
+Node *add() {
     Node *node = mul();
     while (true) {
         if (consume("+"))
@@ -181,6 +206,36 @@ Node *expr() {
             return node;
     }
 }
+
+Node *relational() {
+    Node *node = add();
+    while (true) {
+        if (consume("<"))
+            node = new_node(ND_LT, node, add());
+        else if (consume("<="))
+            node = new_node(ND_LE, node, add());
+        else if (consume(">"))
+            node = new_node(ND_LT, add(), node);
+        else if (consume(">="))
+            node = new_node(ND_LE, add(), node);
+        else
+            return node;
+    }
+}
+
+Node *equality() {
+    Node *node = relational();
+    while (true) {
+        if (consume("=="))
+            node = new_node(ND_EQ, node, relational());
+        else if (consume("!="))
+            node = new_node(ND_NEQ, node, relational());
+        else
+            return node;
+    }
+}
+
+Node *expr() { return equality(); }
 
 void gen(Node *node) {
     if (node->kind == ND_NUM) {
@@ -201,6 +256,22 @@ void gen(Node *node) {
     } else if (node->kind == ND_DIV) {
         printf("  cqo\n");
         printf("  idiv rdi\n");
+    } else if (node->kind == ND_LT) {
+        printf("  cmp rax, rdi\n");
+        printf("  setl al\n");
+        printf("  movzb rax, al\n");
+    } else if (node->kind == ND_LE) {
+        printf("  cmp rax, rdi\n");
+        printf("  setle al\n");
+        printf("  movzb rax, al\n");
+    } else if (node->kind == ND_EQ) {
+        printf("  cmp rax, rdi\n");
+        printf("  sete al\n");
+        printf("  movzb rax, al\n");
+    } else if (node->kind == ND_NEQ) {
+        printf("  cmp rax, rdi\n");
+        printf("  setne al\n");
+        printf("  movzb rax, al\n");
     } else {
         assert(false);
     }
